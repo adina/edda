@@ -28,31 +28,31 @@ Data required
 =============
 To data we use for this tutorial can be obtained by creating a volume from the snapshot XXXXX and mounting it to your instance.  I attached my volume as /dev/xvdf so I'll use the following commands to mount it:
 
-mkdir /mock
-mount /dev/xvdf /mock 
+  %% mkdir /mock
+  %% mount /dev/xvdf /mock 
 
 To complete this tutorial, we suggest creating a new volume to store your results.  For example, create a 30 Gb volume, mount it to your instance as /dev/xvdg, and format it for usage:
 
-cd 
-mkfs -t ext2 /dev/xvdg
-mkdir /mydata
-mount /dev/xvdg /mydata
+  %% cd 
+  %% mkfs -t ext2 /dev/xvdg
+  %% mkdir /mydata
+  %% mount /dev/xvdg /mydata
 
 Note:  All the files generated and used in this tutorial can be found in the snapshot for reference.
 
 The raw files from the HPC mock community can be found in the /mock/raw-files folder.  These are two lanes of Illumina sequencing for the mock community.  For future reference, we suggest copying these files over to your /mydata volume.
 
-cp /mock/raw-files /mydata/.
+  %% cp /mock/raw-files /mydata/.
 
 Digital normalization - 30 min, 4 Gb
 ====================================
 We're going to normalize for a median read coverage of C=5 for this dataset using kmer-lengths of k=20 and using 4 x 1x9 byte hashtables (saved as mock.ht):
 
-python /mnt/khmer/scripts/normalize-by-median.py -k 20 -C 5 -x 1e9 -N 4 -s mock.ht SRR172902.fastq.gz SRR172903.fastq.gz > diginorm.log 2>&1
+  %% python /mnt/khmer/scripts/normalize-by-median.py -k 20 -C 5 -x 1e9 -N 4 -s mock.ht SRR172902.fastq.gz SRR172903.fastq.gz > diginorm.log 2>&1
 
 This will result in producing two "diginormed" files (*keep files) where we can see from the diginorm.log file that 43% of the reads were kept.
 
-tail diginorm.log
+  %% tail diginorm.log
 
 Partition diginormed reads - Round 1 - 5 hours, ~5 Gb
 =======================================================
@@ -60,26 +60,27 @@ We next load our normalized reads into a probablistic graph structure and separa
 
 http://lyorn.idyll.org/~t/khmer/partitioning-big-data.html
 
-python /mnt/khmer/scripts/load-graph.py -k 32 -N 4 -x 1e10 mock.part1 *keep > load-graph.log 2>&1
+  %% python /mnt/khmer/scripts/load-graph.py -k 32 -N 4 -x 1e10 mock.part1 *keep > load-graph.log 2>&1
 
 You can check the false positive rate of the hashtable size you chose.
 
-tail load-graph.log
+  %% tail load-graph.log
 
-python /mnt/khmer/scripts/partition-graph.py --threads 8 -s 1e5 mock.part1 > partition-graph.log 2>&1
+  %% python /mnt/khmer/scripts/partition-graph.py --threads 8 -s 1e5 mock.part1 > partition-graph.log 2>&1
 
-python /mnt/khmer/scripts/merge-partitions.py mock.part1 > merge-part.log 2>&1
+  %% python /mnt/khmer/scripts/merge-partitions.py mock.part1 > merge-part.log 2>&1
 
-python /mnt/khmer/scripts/annotate-partitions.py mock.part1 *keep > annotate.log 2>&1
+  %% python /mnt/khmer/scripts/annotate-partitions.py mock.part1 *keep > annotate.log 2>&1
 
 *Note I changed the script below to include less reads.
-python /mnt/khmer/scripts/extract-partitions.py mock.part1 *part > extract.log 2>&1
+
+  %% python /mnt/khmer/scripts/extract-partitions.py mock.part1 *part > extract.log 2>&1
 
 You can look at the distribution of reads in partitions by looking a the mock.part1.dist file.
 
 The command:
 
-tail -n 5 mock.part1.dist 
+  %% tail -n 5 mock.part1.dist 
 
 prints the following: 
 
@@ -93,71 +94,139 @@ The largest partition has 4,612,473 reads of the 6,147,833 original reads.  Ther
 
 In total, if look at the group files, our partitioning has resulted in 73 small files and 1 larger file.  
 
-ls -lah mock.part1.group*.fa
+  %% ls -lah mock.part1.group*.fa
 
 At this point, we like to separate our small partitions from our "lump" partition (in this case, mock.part1.group0074.fa).
 
-mkdir lump
-mv mock.part1.group0074.fa lump/.
-mkdir non-lump-fastas
-mv mock.part1.group*.fa non-lump-fastas
+  %% mkdir lump
+  %% mv mock.part1.group0074.fa lump/.
+  %% mkdir non-lump-fastas
+  %% mv mock.part1.group*.fa non-lump-fastas
 
 Artifact Removal and Repartitioning, ~3 hours (?), 5 Gb (?)
 ===========================================================
 To remove artifacts, we need to run the following commands:
 
-cd lump
+  %% cd lump
 
-python /mnt/khmer/scripts/load-graph.py -k 32 -N 4 -x 1e9 lump *fa > lump.load.log 2>&1
+  %% python /mnt/khmer/scripts/load-graph.py -k 32 -N 4 -x 1e9 lump *fa > lump.load.log 2>&1
 
-python /mnt/khmer/scripts/make-initial-stoptags.py lump > stoptag-ini.log 2>&1
+  %% python /mnt/khmer/scripts/make-initial-stoptags.py lump > stoptag-ini.log 2>&1
 
-python /mnt/khmer/scripts/partition-graph.py --stoptags lump.stoptags lump >> partition.log 2>&1
+  %% python /mnt/khmer/scripts/partition-graph.py --stoptags lump.stoptags lump >> partition.log 2>&1
 
-python /mnt/khmer/scripts/find-knots.py -x 2e8 -N 4 lump > find-knots.log 2>&1
+  %% python /mnt/khmer/scripts/find-knots.py -x 2e8 -N 4 lump > find-knots.log 2>&1
 
-python /mnt/khmer/scripts/filter-stoptags.py *.stoptags *fa > filter.log 2>&1
+  %% python /mnt/khmer/scripts/filter-stoptags.py *.stoptags *fa > filter.log 2>&1
 
 Then, to repartition the filtered sequences, we run the following commands:
 
-python /mnt/khmer/scripts/load-graph.py -x 1e9 -k 32 -N 4 lumpfilt *stopfilt > lumpfilt-load.log 2>&1
+  %% python /mnt/khmer/scripts/load-graph.py -x 1e9 -k 32 -N 4 lumpfilt *stopfilt > lumpfilt-load.log 2>&1
 
-python /mnt/khmer/scripts/partition-graph.py -T 4 lumpfilt > partition2.log 2>&1
+  %% python /mnt/khmer/scripts/partition-graph.py -T 4 lumpfilt > partition2.log 2>&1
 
-python /mnt/khmer/scripts/merge-partitions.py lumpfilt > merge.log 2>&1
+  %% python /mnt/khmer/scripts/merge-partitions.py lumpfilt > merge.log 2>&1
 
-python /mnt/khmer/scripts/annotate-partitions.py lumpfilt *stopfilt > annotate.log 2>&1
+  %% python /mnt/khmer/scripts/annotate-partitions.py lumpfilt *stopfilt > annotate.log 2>&1
 
-python /mnt/khmer/scripts/extract-partitions.py lumpfilt *part > extract.log 2>&1
+  %% python /mnt/khmer/scripts/extract-partitions.py lumpfilt *part > extract.log 2>&1
 
 Looking at the lump.dist file, we see that we now have roughly ~1000 reads in each partition.  We can also see that we have a lot of "lumpfilt.group*fa" grouped sequence files. We like to keep these organized.
 
-cd /mydata
-mkdir lump-fastas
-mv /mydata/lump/lumpfilt.group*fa lump-fastas/.
+  %% cd /mydata
+  %% mkdir lump-fastas
+  %% mv /mydata/lump/lumpfilt.group*fa lump-fastas/.
 
 Assembly
-=======
+========
 The next step is fun because rather than over 6 million reads to assemble, we have chunks of less than 1000 sequences to assemble.  We use the following script to assemble these chunks in parallel at K=33:
 
-cd /mydata/lump-fastas
-python /mnt/khmer/sandbox/multi-velvet.py *fa
-for f *ass.33/contigs.fa; do cat $f >> all-lump-contigs.fa; done
+  %% cd /mydata/lump-fastas
+  %% python /mnt/khmer/sandbox/multi-velvet.py *fa
+  %% for f *ass.33/contigs.fa; do cat $f >> all-lump-contigs.fa; done
 
-cd /mydata/non-lump-fastas
-python /mnt/khmer/sandbox/multi-velvet.py *fa
-for f *ass.33/contigs.fa; do cat $f >> all-nonlump-contigs.fa; done
+  %% cd /mydata/non-lump-fastas
+  %% python /mnt/khmer/sandbox/multi-velvet.py *fa
+  %% for f *ass.33/contigs.fa; do cat $f >> all-nonlump-contigs.fa; done
 
 To combine all the contigs:
 
-cd /mydata
-cat /mydata/non-lump-fastas/all-nonlump-contigs.fa /mydata/lump-fastas/all-lump-contigs.fa > all-contigs-k33.fa
+  %% cd /mydata
+  %% cat /mydata/non-lump-fastas/all-nonlump-contigs.fa /mydata/lump-fastas/all-lump-contigs.fa > all-contigs-k33.fa
 
 Before we load these into MG-RAST for annotation, I like to rename them and only output contigs > then 300 bp in length.
 
-python /mock/rename.py mock-k33 all-contigs-k33.fa > all-contigs-k33-renamed.fa
-python /mnt/khmer/sandbox/extract-long-sequences.py 300 all-contigs-k33-renamed.fa > mock-contigs-300.fa
+  %% python /mock/rename.py mock-k33 all-contigs-k33.fa > all-contigs-k33-renamed.fa
+  %% python /mnt/khmer/sandbox/extract-long-sequences.py 300 all-contigs-k33-renamed.fa > mock-contigs-300.fa
 
+MG-RAST annotation
+==================
 The next step is to upload this file into MG-RAST (you'll need to transfer it to your local computer first - an inefficiency that is really irritating.)
 
+I've done this step for you and the results can be found below:
+
+http://metagenomics.anl.gov/metagenomics.cgi?page=MetagenomeOverview&metagenome=4487523.3
+
+Under the table of contents, go to the "Download" link and then to the "download page for this metagenome".  Or follow the link below:
+
+http://metagenomics.anl.gov/metagenomics.cgi?page=DownloadMetagenome&metagenome=4487523.3
+
+Under the "prediction of protein coding sequences", download the predicted coding DNA onto your local computer and transfer it to your EC2 volume.  Also scroll to the bottom to "protein similarities", download "protein annotated" onto your local computer and transfer it to your EC2 volume.
+
+For convenience, the unzipped files are on the /mock snapshot in the directory "mg-rast":  4487523.3.350.genecalling.coding.fna and 4487523.3.650.superblat.expand.protein.
+
+Mapping reads to protein coding regions
+========================================
+We'll use Bowtie to align reads to the predicted protein coding regions from the assembly.
+
+First, we'll have to install bowtie.  Its source code is from Soureforge so you'd have to download it locally usually.  To save the hassle, I placed it on the snapshot.
+
+To install:
+
+  %% unzip bowtie-0.12.7-src.zip 
+
+This creates a directory 'bowtie-0.12.7', containing the source code.
+Bowtie is written in C and C++, so unlike Python, you have to go
+through a compilation step where you build the C/C++ source code into
+something that the computer can run.  To do that, ::
+
+  %% cd bowtie-0.12.7
+  %% make
+  %% cp bowtie bowtie-build bowtie-inspect bowtie /usr/local/bin
+
+(This will take a while.)
+
+Then you need to build a bowtie index of your assembled predicted protein coding genes.
+
+  %% bowtie-build 4487523.3.650.superblat.expand.protein mock-orfs
+
+You'll have to unzip the raw files for Bowtie.
+
+  %% gzip -d SRR172902.fastq.gz
+  %% gzip -d SRR172903.fastq.gz
+
+Then, we can map these reads to the ORFs.
+  %% bowtie -p 4 -q  mock-orfs SRR172902.fastq > SRR172902.fastq.map
+  %% bowtie -p 4 -q  mock-orfs SRR172903.fastq > SRR172903.fastq.map
+
+You can see the bowtie manual for what these parameters mean.
+http://bowtie-bio.sourceforge.net/manual.shtml
+
+Next, we need to get the length of the ORFs with the following:
+  %% cd /mock/bowtie-files
+  %% python get-lengths.py ../mg-rast/4487523.3.350.genecalling.coding.fna > mock-orf-lengths.txt
+
+Next, we calculate the median coverage of each ORF based on the number of reads mapped (from Bowtie):
+  %%  python bowtie-multifile-orf-to-coverage.py mock-orf-lengths.txt *map > mock-coverage.txt
+
+The next thing we do is add this median coverage to the MG-RAST annotation:
+  %% python add-orf-coverage.py ../mg-rast/4487523.3.650.superblat.expand.protein mock-coverage.txt > mock-annotations-coverage.txt
+
+This adds the median coverage to the last column in the MG-RAST output. 
+
+To sort these from highest coverage to lowest coverage:
+
+  %% python sort.py mock-annotations-coverage.txt > mock-annotations-coverage-sorted.txt
+
+Now you can begin evaluating the mock community based on what you know about it and the annotations you got!  Have at it!
 
